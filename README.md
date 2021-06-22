@@ -49,13 +49,13 @@ Our purpose is to make that mergation affair easy.
 
 ## Example
 
-![Origin](https://github.com/hzqst/Syscall-Monitor/blob/master/snaps/1.png?raw=true)
+![Origin](https://github.com/TanakaYasen/2D-table-merge/blob/main/image/base.jpg?raw=true)
 
-![Ours](https://github.com/hzqst/Syscall-Monitor/blob/master/snaps/2.png?raw=true)
+![Ours](https://github.com/TanakaYasen/2D-table-merge/blob/main/image/ours.jpg?raw=true)
 
-![Theirs](https://github.com/hzqst/Syscall-Monitor/blob/master/snaps/3.png?raw=true)
+![Theirs](https://github.com/TanakaYasen/2D-table-merge/blob/main/image/theirs.jpg?raw=true)
 
-![Merged](https://github.com/hzqst/Syscall-Monitor/blob/master/snaps/4.png?raw=true)
+![Merged](https://github.com/TanakaYasen/2D-table-merge/blob/main/image/merged.jpg?raw=true)
 
 ## Build
 
