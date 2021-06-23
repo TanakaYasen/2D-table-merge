@@ -37,12 +37,24 @@ Our purpose is to make that mergation affair easy.
 
 行主键在第二行中用 *标识的候选键定义。所有标*的列内容按列序排，联成的键唯一标识一行。
 
-### 原理
-合并时，第一步，先确定最终有哪些列，以及每列的来源。比如不动的列，列名来自于原来三路的任意一列（选P路）， A路插入了一列COL_Y，则最终列含有COL_Y，且来源自A路。
+### Principle
+第一步，先确定最终有哪些列，以及每列的来源。比如不动的列，列名来自于原来三路的任意一列（选P路）， A路插入了一列COL_Y，则最终列含有COL_Y，且来源自A路。
 
 第二步，再确定有哪些行，有些来自B。
 
-第三步，如果一个cell 既有来源自A ,又有来源自B 则比较是否相同，相同不视为冲突，只有仅有一路，则信这一路的改变。
+第三步，如果一个cell变化 既有来源自A ,又有来源自B 则比较是否相同，相同不视为冲突，只有仅有一路，则信这一路的改变。
+		suppose A.cell = a, P.cell = p, B.cell = b; 
+			if(a !=p && b == p) then take a
+			if (a ==p && b != p) then take b
+			if (a !== p && b !=p) then  (a == b) ? ok : conflict;
+
+合并冲突规则。
+列：有删除听删除，如果一个tab删除了某列，则另一tab，重命名，删除，交换行位置，结果都是这列被删除。
+	如果两修改进插入同名列，则冲突。
+	同删除一列不冲突，因为最终都是一个。
+	两tab同交换一列，则取ours。
+	如果tab 中一列被改名为newname, 另一tab 插入同名列，则冲突。
+行：同上。行没有重命名
 
 
 ## How to Configurate
@@ -56,7 +68,7 @@ Our purpose is to make that mergation affair easy.
 # .gitconfig
 [merge "2Dtab-Merge"]
 	name = 2Dtab
-	driver = yourpath/2Dtab-Merge.exe cui_merge %O %A %B %L %P
+	driver = yourpath/2Dtab-Merge.exe merge %O %A %B %L %P
 ```
 
 .tab文件merge属性设定为 `2Dtab-Merge` 这个配置在.gitconfig中定义，主要是driver 指向2Dtab-Merge.exe
@@ -83,12 +95,60 @@ Our purpose is to make that mergation affair easy.
 ## Build
 
 本库由纯C(C99) 写成 这个库要小巧要快要低消耗。几乎C89也可以编译，除了//注释和柔性数组以外。平台相关性只有两个文件 solve.c  tab_log.c 需要用户手动改适配平台。
+This libaray is written in pure C(C99), to pursuit max speed because there are so frequent and large-quantium tab files changes in a 3-way-merge. Almost C89 is available, except for // sytle comments and flex arrray feature in C99.
+only two source file is platform dependent: solve.c & tab_log.c.
 
 只公开后端合并算法。你需要写一个前端来调用这个库。比如弹对话框来提示等都是因平台而异的。
+this libray only publish back-end merge algorithm. You need a front-end to call this lib. For instance:
 
-比如 2Dtab-Merge.exe 就使用cui_merge来调用`tab_merge_whole`接口。
+```
+#include "tab_merge.h"
 
-this libaray is write in pure C(C99), to pursuit max speed because there are so frequent and large-quantium tab files changes in a 3-way-merge.
+int main(int argc, char *argv[])
+{
+	const char *mode = argv[1];
+	
+	//git's config: yourpath/2Dtab-Merge.exe merge %O %A %B %L %P
+	if (0 == strcmp(mode, "merge"))
+	{
+		//only an example, you should call tab_desc_del for the tables &&  tab_bug_del in case of memory leak.
+		tab_desc_t *tab_parent = tab_desc_read_from_file(argv[2]);
+		tab_desc_t *tab_ours = tab_desc_read_from_file(argv[3]);
+		tab_desc_t *tab_theirs = tab_desc_read_from_file(argv[4]);
+		
+		if (!(tab_parent && tab_ours && tab_theirs))
+			return 1;
+		
+		//ensure input tables are legal.	
+		const tab_bug_t *bug_parent = tab_desc_verify(tab_parent);
+		const tab_bug_t *bug_ours = tab_desc_verify(tab_ours);
+		const tab_bug_t *bug_theirs = tab_desc_verify(tab_theirs);
+		if (bug_parent || bug_ours || bug_theirs)
+			return 1;
+		
+		int conflict_marker = atoi(argv[5]);
+		
+		tab_desc_t *tab_merged = tab_merge_whole(tab_parent, tab_ours, tab_theirs, MERGE_MODE_PROB, NULL, NULL);
+		if (tab_merged)
+		{
+			const tab_bug_t *bug_merged = tab_desc_verify(tab_merged);
+			if (bug_merged) 
+				return 1;
+			
+			tab_desc_write_to_file(tab_merged, argv[3]); // git's merge-engine requires to %A, namely, ours;
+			return 0;
+		}
+	}
+	else if (0 == strcmp(mode, "verify")) {
+		/*...*/
+	}
+	else if (0 == strcmp(mode, "...")) {
+		////
+	}
+}
+
+```
+
 
 ## TODO
 

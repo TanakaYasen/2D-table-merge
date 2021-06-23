@@ -22,6 +22,6 @@ typedef struct diff_desc {
 } diff_desc_t;
 
 diff_desc_t *tab_diff_generate(const tab_desc_t *tab_old, const tab_desc_t *tab_new);
-void		tab_diff_free(diff_desc_t *differ);
+void		tab_diff_del(diff_desc_t *differ);
 
 #endif

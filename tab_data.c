@@ -472,7 +472,7 @@ void				tab_kill_primary_key_map(primary_key_map_t *map)
 	struct pk_hash *cur, *tmp;
 	HASH_ITER(hh_, key_head, cur, tmp)
 	{
-		//HASH_DEL(key_head, tmp);
+		HASH_DELETE(hh_, key_head, cur);
 	}
 	for (int i = 0; i < map->nkeys; i++)
 	{

@@ -72,13 +72,6 @@ static int  generate_diff_cols(const tab_desc_t *old, const tab_desc_t *new) {
 	return si;
 }
 
-/*
-static primary_key_t *pkp_old[MAX_ROW];
-static primary_key_t *pkp_new[MAX_ROW];
-static primary_key_t pkarr_old[MAX_ROW];
-static primary_key_t pkarr_new[MAX_ROW];
-*/
-
 struct rowmod_hash{
 	tab_diff_t			*psd;
 	UT_hash_handle		hh;
@@ -325,8 +318,6 @@ diff_desc_t *tab_diff_generate(const tab_desc_t *tab_old, const tab_desc_t *tab_
 		};
 	}
 
-	ret->md_array= (struct row_mod *)tab_alloc(sizeof(struct row_mod) * nrow);
-
 	for (int j = 0; j < nrow; j++) {
 		tab_diff_t *row_diff = ad + j;
 		const primary_key_t *pko = row_diff->ref_idx_old >= 0 ? pkp_old[row_diff->ref_idx_old] : NULL;
@@ -420,4 +411,15 @@ diff_desc_t *tab_diff_generate(const tab_desc_t *tab_old, const tab_desc_t *tab_
 	tab_kill_primary_key_map(pkm_new);
 	tab_kill_primary_key_map(pkm_old);
 	return ret;
+}
+
+void tab_diff_del(diff_desc_t *dif)
+{
+	for (int i = 0; i < dif->nrows; ++i)
+	{
+		tab_free(dif->md_array[i].col);
+	}
+	tab_free(dif->md_hdr);
+	tab_free(dif->md_array);
+	tab_free(dif);
 }
