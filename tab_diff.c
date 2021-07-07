@@ -12,9 +12,7 @@
 #define tab_free		free
 #define tab_realloc		realloc
 
-static int change_step[MAX_LEN];
-static const tab_cell_t *one_col_old[MAX_LEN];
-static const tab_cell_t *one_col_new[MAX_LEN];
+#define TD_MAX(x, y)	((x)>(y)?(x):(y))
 
 typedef struct tab_diff {
 	tab_modify_type_t	mod_type;
@@ -22,15 +20,23 @@ typedef struct tab_diff {
 	int ref_idx_new;
 }tab_diff_t;
 
-static tab_diff_t sd[MAX_LEN];
-static tab_diff_t ad[MAX_LEN];
+typedef struct _diff_context
+{
+	tab_diff_t *schema_diff;
+	tab_diff_t *action_diff;
+} diff_context_t;
 
-static int  generate_diff_cols(const tab_desc_t *old, const tab_desc_t *new) {
+static int  generate_diff_cols(diff_context_t *dcontext, const tab_desc_t *tab_old, const tab_desc_t *tab_new) {
 	int step = 0;
-	int n_edit = ld_path_of(old->hdr_cell, old->col, new->hdr_cell, new->col, cell_cmp, change_step, &step);
+	int *change_step = tab_alloc(sizeof(int) * TD_MAX(tab_old->col, tab_new->col));
+	int n_edit = ld_path_of(tab_old->hdr_cell, tab_old->col, tab_new->hdr_cell, tab_new->col, cell_cmp, change_step, &step);
 
 	int si = 0;
 	int d_o = 0, d_n = 0;
+
+	tab_diff_t *sd = NULL;
+	sd = dcontext->schema_diff = tab_alloc(sizeof(tab_diff_t) * step);
+
 	for (int i = step-1; i >= 0; i--, si++) {
 		int dir = change_step[i];
 		tab_diff_t *psd = sd + si;
@@ -39,7 +45,6 @@ static int  generate_diff_cols(const tab_desc_t *old, const tab_desc_t *new) {
 			psd->mod_type = TAB_MOD_NONE;
 			psd->ref_idx_old = d_o;
 			psd->ref_idx_new = d_n;
-			//printf("*) %s\n", old->hdr_cell[d_o]->data);
 			d_o++;
 			d_n++;
 			break;
@@ -47,7 +52,6 @@ static int  generate_diff_cols(const tab_desc_t *old, const tab_desc_t *new) {
 			psd->mod_type = TAB_MOD_RENAME;
 			psd->ref_idx_old = d_o;
 			psd->ref_idx_new = d_n;
-			//printf("%s -> %s\n", old->hdr_cell[d_o]->data, new->hdr_cell[d_n]->data);
 			d_o++;
 			d_n++;
 			break;
@@ -55,19 +59,18 @@ static int  generate_diff_cols(const tab_desc_t *old, const tab_desc_t *new) {
 			psd->mod_type = TAB_MOD_REMOVE;
 			psd->ref_idx_old = d_o;
 			psd->ref_idx_new = -1;
-			//printf("-) %s\n", old->hdr_cell[d_o]->data);
 			d_o++;
 			break;
 		case DIR_L:
 			psd->mod_type = TAB_MOD_INSERT;
 			psd->ref_idx_old = -1;
 			psd->ref_idx_new = d_n;
-			//printf("+) %s\n", new->hdr_cell[d_n]->data);
 			d_n++;
 			break;
 		}
 	}
 
+	tab_free(change_step);
 	assert(d_o == old->col && d_n == new->col);
 	return si;
 }
@@ -79,7 +82,7 @@ struct rowmod_hash{
 };
 
 
-static int generate_diff_rows(const tab_desc_t *tab_old, const tab_desc_t *tab_new, primary_key_map_t **ppkm_old, primary_key_map_t **ppkm_new) {
+static int generate_diff_rows(diff_context_t *dcontext, const tab_desc_t *tab_old, const tab_desc_t *tab_new, primary_key_map_t **ppkm_old, primary_key_map_t **ppkm_new) {
 	int step = 0;
 
 	*ppkm_old = tab_build_primary_key_map(tab_old);
@@ -87,9 +90,12 @@ static int generate_diff_rows(const tab_desc_t *tab_old, const tab_desc_t *tab_n
 	primary_key_t	**pkp_old = tab_get_primary_key_array(*ppkm_old);
 	primary_key_t	**pkp_new = tab_get_primary_key_array(*ppkm_new);
 
+	int *change_step = tab_alloc(sizeof(int) * TD_MAX(tab_old->row, tab_new->row));
 	int n_edit = ld_path_of(pkp_old+TAB_DATA_ROW, tab_old->row-TAB_DATA_ROW, pkp_new+TAB_DATA_ROW, tab_new->row-TAB_DATA_ROW, pk_cmp, change_step, &step);
 
 	int si = 0;
+	tab_diff_t *ad = NULL;
+	ad = dcontext->action_diff = tab_alloc(sizeof(tab_diff_t) * (step + TAB_DATA_ROW));
 	for (int i = 0; i < TAB_DATA_ROW; i++) {
 		tab_diff_t *psd = ad + si++;
 		if (0 == pk_cmp(pkp_old[i], pkp_new[i]))
@@ -223,7 +229,7 @@ static int generate_diff_rows(const tab_desc_t *tab_old, const tab_desc_t *tab_n
 			break;
 		}
 	}
-
+	tab_free(change_step);
 //gc
 	struct rowmod_hash *it, *tmp;
 	HASH_ITER(hh, _hash_head, it, tmp) {
@@ -245,11 +251,16 @@ static int generate_diff_rows(const tab_desc_t *tab_old, const tab_desc_t *tab_n
 	return j;
 }
 
-static void fix_diff(const tab_desc_t *tab_old, const tab_desc_t *tab_new, int *pncol, int *pnrow) {
+static void fix_diff(diff_context_t *dcontext, tab_desc_t *tab_old, const tab_desc_t *tab_new, int *pncol, int *pnrow) {
 	int ncol = *pncol;
 	int nrow = *pnrow;
 
 	int start = 2;
+	tab_diff_t *sd = dcontext->schema_diff;
+
+	const tab_cell_t **one_col_old = tab_alloc(sizeof(tab_cell_t *) * tab_old->col);
+	const tab_cell_t **one_col_new = tab_alloc(sizeof(tab_cell_t *) * tab_new->col);
+
 reentry1:
 	for (int i = start; i < ncol; i++) {
 		if (sd[i].mod_type == TAB_MOD_RENAME) {
@@ -275,6 +286,8 @@ reentry1:
 		}
 	}
 
+	tab_free(one_col_new);
+	tab_free(one_col_old);
 	*pncol = ncol;
 	*pnrow = nrow;
 }
@@ -282,18 +295,24 @@ reentry1:
 diff_desc_t *tab_diff_generate(const tab_desc_t *tab_old, const tab_desc_t *tab_new) {
 	primary_key_map_t *pkm_old;
 	primary_key_map_t *pkm_new;
-	int ncol = generate_diff_cols(tab_old, tab_new);
-	int nrow = generate_diff_rows(tab_old, tab_new, &pkm_old, &pkm_new);
+
+	diff_context_t dcontext = {NULL, NULL};
+	int ncol = generate_diff_cols(&dcontext, tab_old, tab_new);
+	int nrow = generate_diff_rows(&dcontext, tab_old, tab_new, &pkm_old, &pkm_new);
+
 	primary_key_t **pkp_old = tab_get_primary_key_array(pkm_old);
 	primary_key_t **pkp_new = tab_get_primary_key_array(pkm_new);
 
-	fix_diff(tab_old, tab_new, &ncol, &nrow);
+	fix_diff(&dcontext, tab_old, tab_new, &ncol, &nrow);
 
 	diff_desc_t *ret = (diff_desc_t *)tab_alloc(sizeof(diff_desc_t));
 	ret->md_hdr = (struct col_mod *)tab_alloc(ncol * sizeof(struct col_mod));
 	ret->md_array = (struct row_mod *)tab_alloc(sizeof(struct row_mod) * nrow);
 	ret->ncols = ncol;
 	ret->nrows = nrow;
+
+	tab_diff_t *sd = dcontext.schema_diff;
+	tab_diff_t *ad = dcontext.action_diff;
 
 	for (int i = 0; i < ncol; i++) {
 		tab_diff_t *col_diff = sd + i;
@@ -410,6 +429,10 @@ diff_desc_t *tab_diff_generate(const tab_desc_t *tab_old, const tab_desc_t *tab_
 	}
 	tab_kill_primary_key_map(pkm_new);
 	tab_kill_primary_key_map(pkm_old);
+
+	tab_free(ad);
+	tab_free(sd);
+	dcontext.action_diff = dcontext.schema_diff = NULL;
 	return ret;
 }
 
